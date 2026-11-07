@@ -30,25 +30,38 @@ class MainActivity : Activity() {
         timeframe=Spinner(this).apply { adapter=ArrayAdapter(this@MainActivity,android.R.layout.simple_spinner_dropdown_item,timeframes) }
         root.addView(timeframe)
         val load=Button(this).apply { text="Select Gold CSV"; setOnClickListener {
-            val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="text/*"; addCategory(Intent.CATEGORY_OPENABLE) }
-            startActivityForResult(i,pickCsv)
+            try {
+                // Use Android's generic file chooser rather than document preview; this is
+                // more compatible with large CSV files on some Android file-provider apps.
+                val i=Intent(Intent.ACTION_GET_CONTENT).apply {
+                    type="*/*"
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                }
+                startActivityForResult(Intent.createChooser(i,"Choose Gold CSV file"),pickCsv)
+            } catch(e:Exception) {
+                status.text="Cannot open file picker: ${e.message}"
+            }
         } }
         root.addView(load)
-        status=text("No CSV selected. Select the downloaded XAUUSD CSV. Import is streamed to avoid loading 200+ MB into RAM.",14f); root.addView(status)
+        status=text("No CSV selected. Choose the Gold CSV. Large files are read as a stream, not loaded fully into RAM.",14f); root.addView(status)
         val run=Button(this).apply { text="Run Backtest (EMA 9 / EMA 21)"; setOnClickListener { runBacktest() } }; root.addView(run)
         result=text("Backtest results will appear here.",16f); root.addView(result)
-        root.addView(text("CSV format: timestamp, open, high, low, close (Dukascopy CSV supported). Data is read directly from the file, without storing millions of candles in memory.",13f))
+        root.addView(text("CSV format: timestamp, open, high, low, close (Dukascopy CSV supported).",13f))
         root.addView(text("Timeframes: 1m • 5m • 15m • 1H • 4H • Daily",13f))
         setContentView(ScrollView(this).apply { addView(root) })
     }
 
+    @Suppress("DEPRECATION")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode==pickCsv && resultCode==RESULT_OK) {
-            data?.data?.let { uri ->
+        if(requestCode==pickCsv) {
+            if(resultCode==RESULT_OK && data?.data!=null) {
+                val uri=data.data!!
                 csvUri=uri
-                try { contentResolver.takePersistableUriPermission(uri,Intent.FLAG_GRANT_READ_URI_PERMISSION) } catch(_:Exception){}
-                status.text="CSV selected successfully. File will be read in streaming mode (low memory). Tap Run Backtest."
+                status.text="File selected. Tap Run Backtest. The app will read it gradually."
+                result.text="Ready • URI received"
+            } else {
+                status.text="File selection cancelled. Tap Select Gold CSV and choose the file from Downloads."
             }
         }
     }
@@ -56,7 +69,7 @@ class MainActivity : Activity() {
     private fun runBacktest() {
         val uri=csvUri
         if(uri==null) { status.text="Please select the CSV file first."; return }
-        result.text="Backtest running… Large 10-year file can take several minutes. Keep app open."
+        result.text="Backtest running… Large file may take several minutes. Keep app open."
         thread {
             try {
                 val stats=Stats()
@@ -65,19 +78,15 @@ class MainActivity : Activity() {
                 var prevFast=0.0; var prevSlow=0.0
                 var position=false; var entry=0.0
                 val alpha9=2.0/10.0; val alpha21=2.0/22.0
-                contentResolver.openInputStream(uri)?.use { stream ->
-                    BufferedReader(InputStreamReader(stream)).use { reader ->
+                val stream=contentResolver.openInputStream(uri) ?: throw IllegalStateException("Unable to open selected CSV. Try selecting it again from Downloads.")
+                stream.use {
+                    BufferedReader(InputStreamReader(it, Charsets.UTF_8), 1024*1024).use { reader ->
                         var line=reader.readLine()
                         while(line!=null) {
                             val p=line.split(',')
                             if(p.size>=5) {
-                                val nums=try {
-                                    val o=p[1].trim().toDouble(); val h=p[2].trim().toDouble()
-                                    val l=p[3].trim().toDouble(); val c=p[4].trim().toDouble()
-                                    doubleArrayOf(o,h,l,c)
-                                } catch(_:Exception) { null }
-                                if(nums!=null) {
-                                    val close=nums[3]
+                                val close=try { p[4].trim().toDouble() } catch(_:Exception) { null }
+                                if(close!=null && close.isFinite()) {
                                     if(!initialized) {
                                         prevCloseEma9=close; prevCloseEma21=close
                                         prevFast=close; prevSlow=close; initialized=true
@@ -98,15 +107,12 @@ class MainActivity : Activity() {
                         }
                     }
                 }
-                if(position && stats.candles>0) {
-                    // Final candle close is tracked below in finalClose.
-                }
                 runOnUiThread {
                     status.text="Processed ${stats.candles} candles • ${timeframes[timeframe.selectedItemPosition]} • Offline"
                     result.text="Strategy: EMA 9/21 crossover\nCandles: ${stats.candles}\nTrades: ${stats.trades}\nWins: ${stats.wins}\nWin rate: ${if(stats.trades>0) "%.1f".format(100.0*stats.wins/stats.trades) else "0.0"}%\nNet P/L: ${"%.2f".format(stats.pnl)} price units\nMax drawdown: ${"%.2f".format(stats.maxDd)} price units\n\nStreaming mode: low RAM. Spread, commission and slippage not included."
                 }
             } catch(e:Exception) {
-                runOnUiThread { status.text="CSV read error: ${e.message}" }
+                runOnUiThread { status.text="CSV read error: ${e.message ?: e.javaClass.simpleName}" }
             }
         }
     }
