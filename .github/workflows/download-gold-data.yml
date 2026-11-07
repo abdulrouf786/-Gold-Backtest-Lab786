@@ -1,0 +1,48 @@
+name: Download Gold Historical Data
+on:
+  workflow_dispatch:
+    inputs:
+      timeframe:
+        description: "Gold candle timeframe"
+        required: true
+        type: choice
+        options: [m1, m5, m15, h1, h4, d1]
+        default: m1
+      start_date:
+        description: "Start date (YYYY-MM-DD)"
+        required: true
+        default: "2016-11-07"
+      end_date:
+        description: "End date (exclusive, YYYY-MM-DD)"
+        required: true
+        default: "2026-11-08"
+jobs:
+  download:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Download XAUUSD candles from Dukascopy
+        run: |
+          mkdir -p gold-data
+          npx --yes dukascopy-node \
+            -i xauusd \
+            -from "${{ inputs.start_date }}" \
+            -to "${{ inputs.end_date }}" \
+            -t "${{ inputs.timeframe }}" \
+            -f csv \
+            -dir gold-data
+      - name: Rename and package dataset
+        run: |
+          ls -lh gold-data
+          cd gold-data
+          zip -9 gold-xauusd-${{ inputs.timeframe }}-10y.zip *.csv
+      - name: Upload Gold CSV dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gold-XAUUSD-${{ inputs.timeframe }}-historical-CSV
+          path: gold-data/*.zip
+          retention-days: 7
