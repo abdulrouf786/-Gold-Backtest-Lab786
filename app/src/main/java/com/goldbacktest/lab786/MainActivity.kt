@@ -24,7 +24,7 @@ class MainActivity : Activity() {
         fun text(s:String,size:Float=18f)=TextView(this).apply { text=s; textSize=size; setTextColor(0xFFFFFFFF.toInt()); setPadding(0,10,0,10) }
         root.addView(text("🥇 GOLD BACKTEST LAB 786",24f))
         root.addView(text("XAUUSD • Offline Historical Backtest",15f))
-        val load=Button(this).apply { text="Import Gold CSV"; setOnClickListener { val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="text/*"; addCategory(Intent.CATEGORY_OPENABLE } ; startActivityForResult(i,pickCsv) } }
+        val load=Button(this).apply { text="Import Gold CSV"; setOnClickListener { val i=Intent(Intent.ACTION_OPEN_DOCUMENT).apply { type="text/*"; addCategory(Intent.CATEGORY_OPENABLE) } ; startActivityForResult(i,pickCsv) } }
         root.addView(load)
         status=text("No data loaded. Import a CSV file to begin.",14f); root.addView(status)
         val run=Button(this).apply { text="Run Backtest (EMA 9 / EMA 21)"; setOnClickListener { runBacktest() } }; root.addView(run)
